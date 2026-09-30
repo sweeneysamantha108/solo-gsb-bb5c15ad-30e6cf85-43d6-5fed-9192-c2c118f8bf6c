@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: royalty
+      POSTGRES_PASSWORD: royalty
+      POSTGRES_DB: royalty
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U royalty -d royalty"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://royalty:royalty@db:5432/royalty
+      DB_MIN_CONN: "1"
+      DB_MAX_CONN: "10"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      DOC_PREFIX: "STMT"
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:

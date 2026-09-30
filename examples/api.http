@@ -1,0 +1,157 @@
+### 演出录音播放版税结算服务 API 示例
+### 在 VS Code REST Client / JetBrains HTTP Client 中可直接执行。
+@host = http://localhost:8000
+@api = {{host}}/api/v1
+
+### 健康检查
+GET {{host}}/health
+
+### 登记权利人
+POST {{api}}/rightsholders
+Content-Type: application/json
+
+{"code":"RH-001","name":"作曲家甲"}
+
+###
+POST {{api}}/rightsholders
+Content-Type: application/json
+
+{"code":"RH-002","name":"作词家乙"}
+
+###
+POST {{api}}/rightsholders
+Content-Type: application/json
+
+{"code":"RH-003","name":"出版商丙"}
+
+### 登记作品
+POST {{api}}/works
+Content-Type: application/json
+
+{"code":"W-001","title":"夜场录音 A"}
+
+###
+POST {{api}}/works
+Content-Type: application/json
+
+{"code":"W-002","title":"夜场录音 B"}
+
+### 创建协议（区间 [from, to)，比例合计必须为 100）
+POST {{api}}/agreements
+Content-Type: application/json
+
+{
+  "work_code": "W-001",
+  "valid_from": "2026-01-01T00:00:00Z",
+  "valid_to": "2026-07-01T00:00:00Z",
+  "shares": [
+    {"rightsholder_code": "RH-001", "ratio": "50"},
+    {"rightsholder_code": "RH-002", "ratio": "30"},
+    {"rightsholder_code": "RH-003", "ratio": "20"}
+  ]
+}
+
+### 查询协议（可按作品过滤）
+GET {{api}}/agreements?work_code=W-001
+
+### 导入播放记录（金额为非负整数，最小货币单位）
+POST {{api}}/plays
+Content-Type: application/json
+
+{"code":"P-0001","work_code":"W-001","occurred_at":"2026-02-10T20:00:00Z","amount":100}
+
+### 幂等：同编号同内容 -> 200
+POST {{api}}/plays
+Content-Type: application/json
+
+{"code":"P-0001","work_code":"W-001","occurred_at":"2026-02-10T20:00:00Z","amount":100}
+
+### 异内容：同编号不同金额 -> 422 play_code_content_mismatch
+POST {{api}}/plays
+Content-Type: application/json
+
+{"code":"P-0001","work_code":"W-001","occurred_at":"2026-02-10T20:00:00Z","amount":199}
+
+### 更正：引用原编号，使用新编号
+POST {{api}}/plays
+Content-Type: application/json
+
+{
+  "code": "P-0001-V2",
+  "work_code": "W-001",
+  "occurred_at": "2026-02-10T20:00:00Z",
+  "amount": 90,
+  "corrects_code": "P-0001"
+}
+
+### 分叉更正：再更正已被更正的原记录 -> 422 correction_fork
+POST {{api}}/plays
+Content-Type: application/json
+
+{
+  "code": "P-0001-ALT",
+  "work_code": "W-001",
+  "occurred_at": "2026-02-10T20:00:00Z",
+  "amount": 80,
+  "corrects_code": "P-0001"
+}
+
+### 查看更正链（根 -> 链尾）
+GET {{api}}/plays/P-0001/chain
+
+### 仅链尾记录（默认）；加 include_superseded=true 可看留痕全量
+GET {{api}}/plays
+
+### 批量导入（逐条返回 created/idempotent/rejected）
+POST {{api}}/plays/batch
+Content-Type: application/json
+
+{
+  "plays": [
+    {"code":"P-0002","work_code":"W-001","occurred_at":"2026-02-11T20:00:00Z","amount":101},
+    {"code":"P-0003","work_code":"W-002","occurred_at":"2026-02-12T20:00:00Z","amount":250},
+    {"code":"P-0002","work_code":"W-001","occurred_at":"2026-02-11T20:00:00Z","amount":101}
+  ]
+}
+
+### 试算期间应付与待处理（period 为 [from, to)），detail=true 返回逐笔分账
+GET {{api}}/settlement/compute?period_from=2026-01-01T00:00:00Z&period_to=2026-04-01T00:00:00Z&detail=true
+
+### 出具初始单据
+POST {{api}}/settlement/statements
+Content-Type: application/json
+
+{"period_from":"2026-01-01T00:00:00Z","period_to":"2026-04-01T00:00:00Z"}
+
+### 无变化重复出具 -> 409 no_change
+POST {{api}}/settlement/statements
+Content-Type: application/json
+
+{"period_from":"2026-01-01T00:00:00Z","period_to":"2026-04-01T00:00:00Z"}
+
+### 后补 W-002 协议（可追溯到 1 月）
+POST {{api}}/agreements
+Content-Type: application/json
+
+{
+  "work_code": "W-002",
+  "valid_from": "2026-01-01T00:00:00Z",
+  "valid_to": "2027-01-01T00:00:00Z",
+  "shares": [
+    {"rightsholder_code": "RH-001", "ratio": "40"},
+    {"rightsholder_code": "RH-002", "ratio": "60"}
+  ]
+}
+
+### 再次出具同一期间 -> 生成可正可负的追补单（kind=adjustment，金额为差额）
+POST {{api}}/settlement/statements
+Content-Type: application/json
+
+{"period_from":"2026-01-01T00:00:00Z","period_to":"2026-04-01T00:00:00Z"}
+
+### 单据列表
+GET {{api}}/settlement/statements
+
+### 单据详情
+@sid = 1
+GET {{api}}/settlement/statements/{{sid}}
